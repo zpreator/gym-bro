@@ -2,22 +2,29 @@
 import { useState } from 'react';
 import type { ExerciseWithLast, Person, LogStatus } from '@/lib/types';
 import { relativeDate } from '@/lib/date';
+import { formatPerformance } from '@/lib/format';
 
 interface RowState {
   weight: string;
   reps: string;
-  status: LogStatus;
-  saved: boolean;
+  sets: string;
+  dnf: boolean;
+  savedStatus: LogStatus | null;
+  dirty: boolean;
   saving: boolean;
 }
 
 function initialRow(card: ExerciseWithLast, personId: number): RowState {
   const today = card.today[personId];
+  const last = card.last[personId];
+  const source = today ?? last;
   return {
-    weight: today?.weight != null ? String(today.weight) : '',
-    reps: today?.reps != null ? String(today.reps) : '',
-    status: today?.status ?? 'done',
-    saved: today != null,
+    weight: source?.weight != null ? String(source.weight) : '',
+    reps: source?.reps != null ? String(source.reps) : '',
+    sets: source?.sets != null ? String(source.sets) : '',
+    dnf: today?.status === 'dnf',
+    savedStatus: today?.status ?? null,
+    dirty: false,
     saving: false,
   };
 }
@@ -26,24 +33,25 @@ function lastResultText(card: ExerciseWithLast, personId: number): string {
   const last = card.last[personId];
   if (!last) return 'No history yet';
   const when = relativeDate(last.performed_at);
-  if (last.status === 'dnf') {
-    const attempt = last.weight != null ? `${last.weight} lbs` : 'attempted';
-    return `DNF ${attempt} · ${when}`;
-  }
-  const weight = last.weight != null ? `${last.weight} lbs` : '—';
-  const reps = last.reps != null ? ` × ${last.reps}` : '';
-  return `${weight}${reps} · ${when}`;
+  const perf = formatPerformance(last.weight, last.reps, last.sets);
+  if (last.status === 'dnf') return `DNF ${perf} · ${when}`;
+  return `${perf} · ${when}`;
 }
 
 export default function ExerciseLogCard({
   card,
   people,
+  isFuture,
   onSave,
   onRemove,
 }: {
   card: ExerciseWithLast;
   people: Person[];
-  onSave: (personId: number, data: { weight: string; reps: string; status: LogStatus }) => Promise<void>;
+  isFuture: boolean;
+  onSave: (
+    personId: number,
+    data: { weight: string; reps: string; sets: string; status: LogStatus },
+  ) => Promise<void>;
   onRemove: () => void;
 }) {
   const [rows, setRows] = useState<Record<number, RowState>>(() => {
@@ -52,15 +60,19 @@ export default function ExerciseLogCard({
     return init;
   });
 
-  function update(personId: number, patch: Partial<RowState>) {
-    setRows(prev => ({ ...prev, [personId]: { ...prev[personId], ...patch, saved: false } }));
+  function update(personId: number, patch: Partial<Pick<RowState, 'weight' | 'reps' | 'sets' | 'dnf'>>) {
+    setRows(prev => ({ ...prev, [personId]: { ...prev[personId], ...patch, dirty: true } }));
   }
 
   async function save(personId: number) {
     const row = rows[personId];
+    const status: LogStatus = isFuture ? 'planned' : row.dnf ? 'dnf' : 'done';
     setRows(prev => ({ ...prev, [personId]: { ...prev[personId], saving: true } }));
-    await onSave(personId, { weight: row.weight, reps: row.reps, status: row.status });
-    setRows(prev => ({ ...prev, [personId]: { ...prev[personId], saving: false, saved: true } }));
+    await onSave(personId, { weight: row.weight, reps: row.reps, sets: row.sets, status });
+    setRows(prev => ({
+      ...prev,
+      [personId]: { ...prev[personId], saving: false, savedStatus: status, dirty: false },
+    }));
   }
 
   return (
@@ -80,12 +92,37 @@ export default function ExerciseLogCard({
       <div className="space-y-3">
         {people.map(p => {
           const row = rows[p.id];
+          const hasData = row.weight.trim() !== '' || row.reps.trim() !== '' || row.dnf;
+          const unchanged = !row.dirty && row.savedStatus != null;
+
+          let label: string;
+          let btnClass: string;
+          if (row.saving) {
+            label = '…';
+            btnClass = 'bg-ember-600 text-white';
+          } else if (unchanged) {
+            if (row.savedStatus === 'planned') {
+              label = '○ Planned';
+              btnClass = 'bg-stone-200 text-stone-600';
+            } else if (row.savedStatus === 'dnf') {
+              label = '✕ DNF';
+              btnClass = 'bg-rust-100 text-rust-700';
+            } else {
+              label = '✓ Done';
+              btnClass = 'bg-moss-100 text-moss-700';
+            }
+          } else {
+            label = isFuture ? 'Plan' : 'Done';
+            btnClass = 'bg-ember-600 text-white';
+          }
+
           return (
             <div key={p.id} className="border-t border-stone-100 pt-3 first:border-t-0 first:pt-0">
               <div className="flex items-baseline justify-between mb-1.5">
                 <span className="font-semibold text-sm text-ink-600">{p.name}</span>
                 <span className="text-xs text-stone-500">{lastResultText(card, p.id)}</span>
               </div>
+
               <div className="flex items-center gap-2">
                 <input
                   type="number"
@@ -93,32 +130,44 @@ export default function ExerciseLogCard({
                   value={row.weight}
                   onChange={e => update(p.id, { weight: e.target.value })}
                   placeholder="lbs"
-                  className="w-20 bg-stone-100 rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ember-400"
+                  className="w-16 bg-stone-100 rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ember-400"
                 />
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={row.sets}
+                  onChange={e => update(p.id, { sets: e.target.value })}
+                  placeholder="sets"
+                  className="w-14 bg-stone-100 rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ember-400"
+                />
+                <span className="text-stone-400 text-xs">×</span>
                 <input
                   type="number"
                   inputMode="numeric"
                   value={row.reps}
                   onChange={e => update(p.id, { reps: e.target.value })}
                   placeholder="reps"
-                  className="w-16 bg-stone-100 rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ember-400"
+                  className="w-14 bg-stone-100 rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ember-400"
                 />
-                <button
-                  onClick={() => update(p.id, { status: row.status === 'dnf' ? 'done' : 'dnf' })}
-                  className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-colors ${
-                    row.status === 'dnf' ? 'bg-rust-500 text-white' : 'bg-stone-100 text-stone-500'
-                  }`}
-                >
-                  DNF
-                </button>
+              </div>
+
+              <div className="flex items-center gap-2 mt-2">
+                {!isFuture && (
+                  <button
+                    onClick={() => update(p.id, { dnf: !row.dnf })}
+                    className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-colors ${
+                      row.dnf ? 'bg-rust-500 text-white' : 'bg-stone-100 text-stone-500'
+                    }`}
+                  >
+                    DNF
+                  </button>
+                )}
                 <button
                   onClick={() => save(p.id)}
-                  disabled={row.saving || (row.saved && !row.weight && !row.reps && row.status !== 'dnf')}
-                  className={`ml-auto px-3 py-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40 ${
-                    row.saved ? 'bg-moss-100 text-moss-700' : 'bg-ember-600 text-white'
-                  }`}
+                  disabled={row.saving || !hasData || unchanged}
+                  className={`ml-auto px-3 py-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40 ${btnClass}`}
                 >
-                  {row.saving ? '…' : row.saved ? '✓ Saved' : 'Save'}
+                  {label}
                 </button>
               </div>
             </div>

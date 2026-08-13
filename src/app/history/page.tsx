@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { HistoryDay } from '@/lib/types';
 import { relativeDate } from '@/lib/date';
+import { formatPerformance } from '@/lib/format';
 
 export default function HistoryPage() {
   const [days, setDays] = useState<HistoryDay[]>([]);
@@ -51,8 +52,7 @@ export default function HistoryPage() {
                         <span className="text-stone-600">{e.person_name}</span>
                         <span className={e.status === 'dnf' ? 'text-rust-600 font-medium' : 'text-ink-700'}>
                           {e.status === 'dnf' ? 'DNF ' : ''}
-                          {e.weight != null ? `${e.weight} lbs` : '—'}
-                          {e.reps != null ? ` × ${e.reps}` : ''}
+                          {formatPerformance(e.weight, e.reps, e.sets)}
                         </span>
                       </div>
                     ))}

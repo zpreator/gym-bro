@@ -4,13 +4,13 @@ import { todayStr } from '@/lib/date';
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { exercise_id, person_id, performed_at, weight, reps, status, notes } = body;
+  const { exercise_id, person_id, performed_at, weight, reps, sets, status, notes } = body;
 
   if (!exercise_id || !person_id) {
     return NextResponse.json({ error: 'exercise_id and person_id are required' }, { status: 400 });
   }
-  if (status !== 'done' && status !== 'dnf') {
-    return NextResponse.json({ error: 'status must be "done" or "dnf"' }, { status: 400 });
+  if (status !== 'done' && status !== 'dnf' && status !== 'planned') {
+    return NextResponse.json({ error: 'status must be "done", "dnf", or "planned"' }, { status: 400 });
   }
 
   const entry = logSet({
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     performed_at: performed_at || todayStr(),
     weight: weight === '' || weight === undefined ? null : Number(weight),
     reps: reps === '' || reps === undefined ? null : Number(reps),
+    sets: sets === '' || sets === undefined ? null : Number(sets),
     status,
     notes,
   });

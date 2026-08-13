@@ -1,16 +1,18 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import type { Exercise, ExerciseWithLast, LogStatus, Person } from '@/lib/types';
-import { todayStr } from '@/lib/date';
+import { todayStr, relativeDate, formatDate, isFutureDate } from '@/lib/date';
 import ExercisePicker from '@/components/ExercisePicker';
 import ExerciseLogCard from '@/components/ExerciseLogCard';
+import DateNav from '@/components/DateNav';
 
 export default function TodayPage() {
   const [people, setPeople] = useState<Person[]>([]);
   const [cards, setCards] = useState<ExerciseWithLast[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const date = todayStr();
+  const [date, setDate] = useState(todayStr());
+  const isFuture = isFutureDate(date);
 
   const load = useCallback(async () => {
     const [peopleRes, todayRes] = await Promise.all([
@@ -40,7 +42,7 @@ export default function TodayPage() {
   async function saveEntry(
     exerciseId: number,
     personId: number,
-    data: { weight: string; reps: string; status: LogStatus },
+    data: { weight: string; reps: string; sets: string; status: LogStatus },
   ) {
     if (!data.weight && !data.reps && data.status !== 'dnf') return;
     const entry = await fetch('/api/logs', {
@@ -52,6 +54,7 @@ export default function TodayPage() {
         performed_at: date,
         weight: data.weight,
         reps: data.reps,
+        sets: data.sets,
         status: data.status,
       }),
     }).then(r => r.json());
@@ -62,21 +65,40 @@ export default function TodayPage() {
 
   const excludeIds = cards.map(c => c.id);
 
+  const isToday = date === todayStr();
+
   return (
-    <div className="px-4 pt-8 space-y-5">
-      <div>
-        <h1 className="text-2xl font-display font-bold text-ink-700">Today</h1>
-        <p className="text-stone-600 text-sm mt-0.5">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-        </p>
+    <div className="px-4 pt-8 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-display font-bold text-ink-700">{isFuture ? 'Plan' : 'Today'}</h1>
+          <p className="text-stone-600 text-sm mt-0.5">
+            {isToday ? 'Today · ' : `${relativeDate(date)} · `}
+            {formatDate(date)}
+          </p>
+        </div>
+        {!isToday && (
+          <button
+            onClick={() => setDate(todayStr())}
+            className="shrink-0 mt-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-white text-ember-700 active:bg-stone-100"
+          >
+            Today
+          </button>
+        )}
       </div>
+
+      <DateNav date={date} onChange={setDate} />
 
       {loading && <p className="text-stone-500 text-sm">Loading…</p>}
 
       {!loading && cards.length === 0 && (
         <div className="bg-white rounded-2xl p-6 text-center space-y-1">
           <p className="text-ink-700 font-display font-semibold text-lg">No exercises yet</p>
-          <p className="text-stone-500 text-sm">Tap “Add Exercise” to start building today’s session.</p>
+          <p className="text-stone-500 text-sm">
+            {isFuture
+              ? 'Tap “Add Exercise” to plan this workout.'
+              : 'Tap “Add Exercise” to start building this session.'}
+          </p>
         </div>
       )}
 
@@ -86,6 +108,7 @@ export default function TodayPage() {
             key={card.id}
             card={card}
             people={people}
+            isFuture={isFuture}
             onSave={(personId, data) => saveEntry(card.id, personId, data)}
             onRemove={() => removeExercise(card.id)}
           />
