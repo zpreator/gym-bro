@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
 import type { ExerciseWithLast, Person, LogStatus } from '@/lib/types';
 import { relativeDate } from '@/lib/date';
 import { formatPerformance } from '@/lib/format';
@@ -82,11 +83,23 @@ export default function ExerciseLogCard({
           <h3 className="font-display font-semibold text-ink-700 text-lg leading-tight">{card.name}</h3>
           <span className="badge-ember mt-1 inline-block">{card.category}</span>
         </div>
-        <button onClick={onRemove} aria-label="Remove exercise" className="text-stone-400 p-1 -m-1">
-          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1 -m-1">
+          <Link
+            href={`/history?tab=progress&exercise=${card.id}`}
+            aria-label="View progress"
+            className="text-stone-400 p-1"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v18h18" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 15l4-5 3 3 5-7" />
+            </svg>
+          </Link>
+          <button onClick={onRemove} aria-label="Remove exercise" className="text-stone-400 p-1">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3">
