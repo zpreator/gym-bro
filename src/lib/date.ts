@@ -45,3 +45,23 @@ export function relativeDate(dateStr: string): string {
 export function isFutureDate(dateStr: string): boolean {
   return dateStr > todayStr();
 }
+
+/** Monday of the ISO week containing `dateStr`. */
+export function getWeekStart(dateStr: string): string {
+  const d = parseDateStr(dateStr);
+  const dayOfWeek = d.getDay(); // 0 = Sunday .. 6 = Saturday
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  return addDays(dateStr, mondayOffset);
+}
+
+/** Compact "Mon 4 – Sun 10" style label for the week starting `weekStart`. */
+export function formatWeekRange(weekStart: string): string {
+  const start = parseDateStr(weekStart);
+  const end = parseDateStr(addDays(weekStart, 6));
+  const startLabel = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const endLabel =
+    start.getMonth() === end.getMonth()
+      ? end.toLocaleDateString('en-US', { day: 'numeric' })
+      : end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `${startLabel} – ${endLabel}`;
+}

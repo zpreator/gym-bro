@@ -1,9 +1,20 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import type { Category, Exercise, LogEntry, LogStatus, Person, LastResult, ExerciseWithLast, HistoryDay } from './types';
+import type {
+  Category,
+  Exercise,
+  LogEntry,
+  LogStatus,
+  Person,
+  LastResult,
+  ExerciseWithLast,
+  HistoryDay,
+  ExerciseHistoryPoint,
+  WeeklyVolume,
+} from './types';
 import { CATEGORIES } from './types';
-import { todayStr } from './date';
+import { todayStr, addDays } from './date';
 
 const dataDir = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const dbPath = process.env.DATABASE_PATH || path.join(dataDir, 'gym.db');
@@ -347,4 +358,46 @@ export function getHistoryDays(limit = 30, beforeDate?: string): HistoryDay[] {
       entries: rows.map(r => ({ ...parseLog(r), exercise_name: r.exercise_name as string, person_name: r.person_name as string })),
     };
   });
+}
+
+// ── Charts ───────────────────────────────────────────────────────────────────
+
+/** Completed (non-planned) log points for an exercise, oldest first, for the progress chart. */
+export function getExerciseHistory(exerciseId: number): ExerciseHistoryPoint[] {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT performed_at, person_id, weight, reps, sets, status FROM logs
+    WHERE exercise_id = ? AND status != 'planned'
+    ORDER BY performed_at ASC
+  `).all(exerciseId) as Record<string, unknown>[];
+  return rows.map(r => ({
+    performed_at: r.performed_at as string,
+    person_id: r.person_id as number,
+    weight: (r.weight as number | null) ?? null,
+    reps: (r.reps as number | null) ?? null,
+    sets: (r.sets as number | null) ?? null,
+    status: r.status as LogStatus,
+  }));
+}
+
+/** Total sets per person per category for the Mon–Sun week starting `weekStart`, counting done+dnf entries (a null `sets` counts as 1). */
+export function getWeeklyVolume(weekStart: string): WeeklyVolume {
+  const db = getDb();
+  const weekEnd = addDays(weekStart, 6);
+  const rows = db.prepare(`
+    SELECT logs.person_id as person_id, exercises.category as category,
+           COALESCE(SUM(COALESCE(logs.sets, 1)), 0) as total_sets
+    FROM logs
+    JOIN exercises ON exercises.id = logs.exercise_id
+    WHERE logs.performed_at BETWEEN ? AND ? AND logs.status != 'planned'
+    GROUP BY logs.person_id, exercises.category
+  `).all(weekStart, weekEnd) as { person_id: number; category: string; total_sets: number }[];
+
+  const volume: Record<number, Record<string, number>> = {};
+  for (const p of getPeople()) volume[p.id] = {};
+  for (const row of rows) {
+    if (!volume[row.person_id]) volume[row.person_id] = {};
+    volume[row.person_id][row.category] = row.total_sets;
+  }
+  return { week_start: weekStart, volume };
 }
