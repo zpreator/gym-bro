@@ -25,7 +25,8 @@ export interface Exercise {
   created_at: string;
 }
 
-export type LogStatus = 'done' | 'dnf';
+/** 'planned' = set up ahead of time for a future day; 'done' = actually performed; 'dnf' = attempted but not completed. */
+export type LogStatus = 'planned' | 'done' | 'dnf';
 
 export interface LogEntry {
   id: number;
@@ -34,16 +35,18 @@ export interface LogEntry {
   performed_at: string; // YYYY-MM-DD
   weight: number | null;
   reps: number | null;
+  sets: number | null;
   status: LogStatus;
   notes: string;
   created_at: string;
 }
 
-/** The most recent logged entry for a person on a given exercise, before today. */
+/** The most recent logged entry for a person on a given exercise, before a given date. */
 export interface LastResult {
   performed_at: string;
   weight: number | null;
   reps: number | null;
+  sets: number | null;
   status: LogStatus;
 }
 

@@ -1,25 +1,47 @@
 /** Local YYYY-MM-DD for "today" — avoids UTC day-boundary drift from toISOString(). */
 export function todayStr(): string {
-  const d = new Date();
+  return toDateStr(new Date());
+}
+
+function toDateStr(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
-export function formatDate(dateStr: string): string {
+/** Parses a YYYY-MM-DD string as a local date (avoids UTC parsing of `new Date(dateStr)`). */
+export function parseDateStr(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return new Date(y, m - 1, d);
 }
 
+/** Returns the YYYY-MM-DD `delta` days from `dateStr` (negative for the past). */
+export function addDays(dateStr: string, delta: number): string {
+  const d = parseDateStr(dateStr);
+  d.setDate(d.getDate() + delta);
+  return toDateStr(d);
+}
+
+export function formatDate(dateStr: string): string {
+  return parseDateStr(dateStr).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/** Human-friendly label for a date relative to today, e.g. "Yesterday", "3 days ago", "Tomorrow", "In 3 days". */
 export function relativeDate(dateStr: string): string {
   const today = todayStr();
   if (dateStr === today) return 'Today';
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const [ty, tm, td] = today.split('-').map(Number);
-  const diffDays = Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(y, m - 1, d)) / 86400000);
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays > 1 && diffDays < 7) return `${diffDays} days ago`;
+  const diffDays = Math.round(
+    (parseDateStr(dateStr).getTime() - parseDateStr(today).getTime()) / 86400000,
+  );
+  if (diffDays === -1) return 'Yesterday';
+  if (diffDays === 1) return 'Tomorrow';
+  if (diffDays < -1 && diffDays > -7) return `${-diffDays} days ago`;
+  if (diffDays > 1 && diffDays < 7) return `In ${diffDays} days`;
   return formatDate(dateStr);
+}
+
+/** True if `dateStr` is strictly after today. */
+export function isFutureDate(dateStr: string): boolean {
+  return dateStr > todayStr();
 }

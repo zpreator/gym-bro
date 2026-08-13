@@ -53,6 +53,11 @@ function initDb(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_logs_exercise_person ON logs(exercise_id, person_id, performed_at);
   `);
 
+  const logColumns = db.prepare('PRAGMA table_info(logs)').all() as { name: string }[];
+  if (!logColumns.some(c => c.name === 'sets')) {
+    db.exec('ALTER TABLE logs ADD COLUMN sets INTEGER');
+  }
+
   const { count: peopleCount } = db.prepare('SELECT COUNT(*) as count FROM people').get() as { count: number };
   if (peopleCount === 0) seedPeople(db);
 
@@ -180,6 +185,7 @@ function parseLog(row: Record<string, unknown>): LogEntry {
     performed_at: row.performed_at as string,
     weight: (row.weight as number | null) ?? null,
     reps: (row.reps as number | null) ?? null,
+    sets: (row.sets as number | null) ?? null,
     status: row.status as LogStatus,
     notes: (row.notes as string) ?? '',
     created_at: row.created_at as string,
@@ -231,12 +237,12 @@ export function deleteExercise(id: number): void {
 
 // ── Logs ─────────────────────────────────────────────────────────────────────
 
-/** Most recent logged result for a person on an exercise, strictly before the given date. */
+/** Most recent logged (non-planned) result for a person on an exercise, strictly before the given date. */
 export function getLastResult(exerciseId: number, personId: number, beforeDate: string): LastResult | null {
   const db = getDb();
   const row = db.prepare(
-    `SELECT performed_at, weight, reps, status FROM logs
-     WHERE exercise_id = ? AND person_id = ? AND performed_at < ?
+    `SELECT performed_at, weight, reps, sets, status FROM logs
+     WHERE exercise_id = ? AND person_id = ? AND performed_at < ? AND status != 'planned'
      ORDER BY performed_at DESC LIMIT 1`
   ).get(exerciseId, personId, beforeDate) as Record<string, unknown> | undefined;
   if (!row) return null;
@@ -244,6 +250,7 @@ export function getLastResult(exerciseId: number, personId: number, beforeDate: 
     performed_at: row.performed_at as string,
     weight: (row.weight as number | null) ?? null,
     reps: (row.reps as number | null) ?? null,
+    sets: (row.sets as number | null) ?? null,
     status: row.status as LogStatus,
   };
 }
@@ -287,15 +294,16 @@ export function logSet(data: {
   performed_at: string;
   weight: number | null;
   reps: number | null;
+  sets: number | null;
   status: LogStatus;
   notes?: string;
 }): LogEntry {
   const db = getDb();
   db.prepare(`
-    INSERT INTO logs (exercise_id, person_id, performed_at, weight, reps, status, notes)
-    VALUES (@exercise_id, @person_id, @performed_at, @weight, @reps, @status, @notes)
+    INSERT INTO logs (exercise_id, person_id, performed_at, weight, reps, sets, status, notes)
+    VALUES (@exercise_id, @person_id, @performed_at, @weight, @reps, @sets, @status, @notes)
     ON CONFLICT(exercise_id, person_id, performed_at)
-    DO UPDATE SET weight = @weight, reps = @reps, status = @status, notes = @notes
+    DO UPDATE SET weight = @weight, reps = @reps, sets = @sets, status = @status, notes = @notes
   `).run({ notes: '', ...data });
   const row = db.prepare(
     'SELECT * FROM logs WHERE exercise_id = ? AND person_id = ? AND performed_at = ?'
@@ -316,12 +324,13 @@ export function removeExerciseFromDate(exerciseId: number, date: string): void {
 
 // ── History ──────────────────────────────────────────────────────────────────
 
+/** History shows only completed workouts (done/dnf) — planned/future entries live on the recording page instead. */
 export function getHistoryDays(limit = 30, beforeDate?: string): HistoryDay[] {
   const db = getDb();
   const dateRows = db.prepare(
     beforeDate
-      ? 'SELECT DISTINCT performed_at FROM logs WHERE performed_at < ? ORDER BY performed_at DESC LIMIT ?'
-      : 'SELECT DISTINCT performed_at FROM logs ORDER BY performed_at DESC LIMIT ?'
+      ? `SELECT DISTINCT performed_at FROM logs WHERE performed_at < ? AND status != 'planned' ORDER BY performed_at DESC LIMIT ?`
+      : `SELECT DISTINCT performed_at FROM logs WHERE status != 'planned' ORDER BY performed_at DESC LIMIT ?`
   ).all(...(beforeDate ? [beforeDate, limit] : [limit])) as { performed_at: string }[];
 
   return dateRows.map(({ performed_at }) => {
@@ -330,7 +339,7 @@ export function getHistoryDays(limit = 30, beforeDate?: string): HistoryDay[] {
       FROM logs
       JOIN exercises ON exercises.id = logs.exercise_id
       JOIN people ON people.id = logs.person_id
-      WHERE logs.performed_at = ?
+      WHERE logs.performed_at = ? AND logs.status != 'planned'
       ORDER BY exercises.category, exercises.name, people.sort_order
     `).all(performed_at) as Record<string, unknown>[];
     return {
