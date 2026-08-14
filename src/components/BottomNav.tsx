@@ -12,7 +12,7 @@ const tabs = [
 export default function BottomNav() {
   const pathname = usePathname();
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-stone-200 max-w-lg mx-auto">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-stone-200 max-w-lg mx-auto pb-[env(safe-area-inset-bottom)]">
       <div className="flex h-16">
         {tabs.map(({ href, label, icon: Icon }) => {
           const active = href === '/' ? pathname === '/' : pathname.startsWith(href);

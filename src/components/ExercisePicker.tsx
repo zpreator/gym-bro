@@ -17,9 +17,29 @@ export default function ExercisePicker({
   const [category, setCategory] = useState<Category | 'All'>('All');
   const [newCategory, setNewCategory] = useState<Category>('Full Body');
   const [creating, setCreating] = useState(false);
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
 
   useEffect(() => {
     fetch('/api/exercises').then(r => r.json()).then(setExercises);
+  }, []);
+
+  // iOS doesn't shrink `vh` units when the on-screen keyboard opens, so a static
+  // 85vh max-height leaves this sheet taller than the space actually visible
+  // above the keyboard. Track the real visible height via visualViewport instead.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setViewportHeight(vv.height);
+    update();
+    vv.addEventListener('resize', update);
+    return () => vv.removeEventListener('resize', update);
+  }, []);
+
+  // Prevent the background page from scrolling while the sheet (and its keyboard) is open.
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prevOverflow; };
   }, []);
 
   const excludeSet = useMemo(() => new Set(excludeIds), [excludeIds]);
@@ -49,9 +69,12 @@ export default function ExercisePicker({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center">
-      <div className="bg-white w-full max-w-lg max-h-[85vh] rounded-t-2xl sm:rounded-2xl flex flex-col">
-        <div className="p-4 border-b border-stone-200 flex items-center gap-3">
+    <div className="fixed inset-0 z-[60] bg-black/40 flex items-end sm:items-center justify-center">
+      <div
+        className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl flex flex-col"
+        style={{ maxHeight: viewportHeight != null ? viewportHeight * 0.85 : '85vh' }}
+      >
+        <div className="p-4 border-b border-stone-200 flex items-center gap-3 shrink-0">
           <input
             autoFocus
             value={search}
@@ -64,7 +87,7 @@ export default function ExercisePicker({
           </button>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto px-4 py-3 border-b border-stone-100">
+        <div className="flex gap-2 overflow-x-auto px-4 py-3 border-b border-stone-100 shrink-0">
           {(['All', ...CATEGORIES] as const).map(c => (
             <button
               key={c}
@@ -78,7 +101,7 @@ export default function ExercisePicker({
           ))}
         </div>
 
-        <div className="overflow-y-auto flex-1 p-2">
+        <div className="overflow-y-auto flex-1 p-2 pb-[env(safe-area-inset-bottom)]">
           {filtered.map(e => (
             <button
               key={e.id}
