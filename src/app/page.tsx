@@ -1,28 +1,33 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import type { Exercise, ExerciseWithLast, LogStatus, Person } from '@/lib/types';
-import { todayStr, relativeDate, formatDate, isFutureDate } from '@/lib/date';
+import { todayStr, relativeDate, formatDate, isFutureDate, addDays } from '@/lib/date';
 import ExercisePicker from '@/components/ExercisePicker';
 import ExerciseLogCard from '@/components/ExerciseLogCard';
 import DateNav from '@/components/DateNav';
+import SuggestedExercises from '@/components/SuggestedExercises';
 
 export default function TodayPage() {
   const [people, setPeople] = useState<Person[]>([]);
   const [cards, setCards] = useState<ExerciseWithLast[]>([]);
+  const [lastWeekCards, setLastWeekCards] = useState<ExerciseWithLast[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [date, setDate] = useState(todayStr());
   const isFuture = isFutureDate(date);
+  const lastWeekDate = addDays(date, -7);
 
   const load = useCallback(async () => {
-    const [peopleRes, todayRes] = await Promise.all([
+    const [peopleRes, todayRes, lastWeekRes] = await Promise.all([
       fetch('/api/people').then(r => r.json()),
       fetch(`/api/today?date=${date}`).then(r => r.json()),
+      fetch(`/api/today?date=${lastWeekDate}`).then(r => r.json()),
     ]);
     setPeople(peopleRes);
     setCards(todayRes);
+    setLastWeekCards(lastWeekRes);
     setLoading(false);
-  }, [date]);
+  }, [date, lastWeekDate]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -88,6 +93,15 @@ export default function TodayPage() {
       </div>
 
       <DateNav date={date} onChange={setDate} />
+
+      {!loading && (
+        <SuggestedExercises
+          candidates={lastWeekCards}
+          excludeIds={excludeIds}
+          sourceDate={lastWeekDate}
+          onAdd={addExercise}
+        />
+      )}
 
       {loading && <p className="text-stone-500 text-sm">Loading…</p>}
 
