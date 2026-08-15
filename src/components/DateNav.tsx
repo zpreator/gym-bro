@@ -6,7 +6,6 @@ const STRIP_RANGE = 14; // days shown on each side of today in the swipeable str
 
 export default function DateNav({ date, onChange }: { date: string; onChange: (date: string) => void }) {
   const selectedRef = useRef<HTMLButtonElement>(null);
-  const dateInputRef = useRef<HTMLInputElement>(null);
   const today = todayStr();
 
   const days = Array.from({ length: STRIP_RANGE * 2 + 1 }, (_, i) => addDays(today, i - STRIP_RANGE));
@@ -14,21 +13,6 @@ export default function DateNav({ date, onChange }: { date: string; onChange: (d
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }, [date]);
-
-  function openCalendar() {
-    const el = dateInputRef.current;
-    if (!el) return;
-    if (typeof el.showPicker === 'function') {
-      try {
-        el.showPicker();
-        return;
-      } catch {
-        // fall through to focus/click fallback below
-      }
-    }
-    el.focus();
-    el.click();
-  }
 
   return (
     <div className="flex items-center gap-2">
@@ -59,26 +43,26 @@ export default function DateNav({ date, onChange }: { date: string; onChange: (d
         })}
       </div>
 
-      <div className="relative shrink-0">
-        <button
-          onClick={openCalendar}
+      <div className="relative shrink-0 w-11 h-14">
+        {/* The date input itself is the real tap target (layered on top, invisible).
+            Icon buttons wired via JS (showPicker/focus/click) on a hidden decoy input
+            are unreliable on iOS Safari; a directly-tapped native date input always works. */}
+        <input
+          type="date"
+          value={date}
+          onChange={e => e.target.value && onChange(e.target.value)}
           aria-label="Pick a date"
-          className="w-11 h-14 rounded-xl bg-white text-stone-500 flex items-center justify-center active:bg-stone-100"
+          className="peer absolute inset-0 z-10 w-full h-full opacity-0"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 rounded-xl bg-white text-stone-500 flex items-center justify-center pointer-events-none peer-active:bg-stone-100 transition-colors"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
             <rect x="3" y="5" width="18" height="16" rx="2" />
             <path strokeLinecap="round" d="M8 3v4M16 3v4M3 10h18" />
           </svg>
-        </button>
-        <input
-          ref={dateInputRef}
-          type="date"
-          value={date}
-          onChange={e => e.target.value && onChange(e.target.value)}
-          className="absolute inset-0 w-full h-full opacity-0 pointer-events-none"
-          tabIndex={-1}
-          aria-hidden="true"
-        />
+        </div>
       </div>
     </div>
   );
