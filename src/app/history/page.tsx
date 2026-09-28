@@ -111,6 +111,7 @@ function LogTab() {
                         <span className={e.status === 'dnf' ? 'text-rust-600 font-medium' : 'text-ink-700'}>
                           {e.status === 'dnf' ? 'DNF ' : ''}
                           {formatPerformance(e.weight, e.reps, e.sets)}
+                          {e.seat && <span className="text-stone-500"> · seat {e.seat}</span>}
                         </span>
                       </div>
                     ))}

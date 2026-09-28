@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 
 const tabs = [
   { href: '/', label: 'Today', icon: TodayIcon },
+  { href: '/routines', label: 'Routines', icon: RoutinesIcon },
   { href: '/history', label: 'History', icon: HistoryIcon },
   { href: '/exercises', label: 'Exercises', icon: ExercisesIcon },
   { href: '/settings', label: 'Settings', icon: SettingsIcon },
@@ -38,6 +39,15 @@ function TodayIcon({ active }: { active: boolean }) {
   return (
     <svg className={`w-5 h-5 ${active ? 'stroke-ember-600' : 'stroke-stone-500'} fill-none`} viewBox="0 0 24 24" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 6.5h2M6.5 17.5h2M2 12h1M21 12h1M4.5 12h15M6.5 4v16M17.5 4v16M15.5 6.5h2M15.5 17.5h2" />
+    </svg>
+  );
+}
+
+function RoutinesIcon({ active }: { active: boolean }) {
+  return (
+    <svg className={`w-5 h-5 ${active ? 'stroke-ember-600' : 'stroke-stone-500'} fill-none`} viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5.1 9A8 8 0 0119 8.5M18.9 15A8 8 0 015 15.5" />
     </svg>
   );
 }
