@@ -43,12 +43,15 @@ export default function ExerciseLogCard({
   card,
   people,
   isFuture,
+  isExtra = false,
   onSave,
   onRemove,
 }: {
   card: ExerciseWithLast;
   people: Person[];
   isFuture: boolean;
+  /** Done today on top of the day's routine, without being part of it. */
+  isExtra?: boolean;
   onSave: (
     personId: number,
     data: { weight: string; reps: string; sets: string; status: LogStatus },
@@ -81,7 +84,14 @@ export default function ExerciseLogCard({
       <div className="flex items-start justify-between">
         <div>
           <h3 className="font-display font-semibold text-ink-700 text-lg leading-tight">{card.name}</h3>
-          <span className="badge-ember mt-1 inline-block">{card.category}</span>
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="badge-ember inline-block">{card.category}</span>
+            {isExtra && (
+              <span className="text-[10px] font-bold uppercase tracking-wide bg-stone-100 text-stone-500 rounded px-1.5 py-0.5">
+                Extra
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1 -m-1">
           <Link

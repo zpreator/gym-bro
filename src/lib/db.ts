@@ -12,6 +12,7 @@ import type {
   HistoryDay,
   ExerciseHistoryPoint,
   WeeklyVolume,
+  Routine,
 } from './types';
 import { CATEGORIES } from './types';
 import { todayStr, addDays } from './date';
@@ -62,6 +63,37 @@ function initDb(db: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_logs_performed_at ON logs(performed_at);
     CREATE INDEX IF NOT EXISTS idx_logs_exercise_person ON logs(exercise_id, person_id, performed_at);
+
+    -- Exercises on a given day's session, whether or not anything has been logged yet.
+    -- routine_id is set when the exercise came from a routine; NULL means a one-off extra.
+    CREATE TABLE IF NOT EXISTS session_exercises (
+      performed_at TEXT NOT NULL,
+      exercise_id INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL,
+      routine_id INTEGER REFERENCES routines(id) ON DELETE SET NULL,
+      PRIMARY KEY (performed_at, exercise_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS routines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS routine_exercises (
+      routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+      exercise_id INTEGER NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL,
+      PRIMARY KEY (routine_id, exercise_id)
+    );
+
+    -- Each day a routine was started, and which rotation it used (exercises[offset] went first).
+    CREATE TABLE IF NOT EXISTS routine_days (
+      routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+      performed_at TEXT NOT NULL,
+      rotation_offset INTEGER NOT NULL,
+      PRIMARY KEY (routine_id, performed_at)
+    );
   `);
 
   const logColumns = db.prepare('PRAGMA table_info(logs)').all() as { name: string }[];
@@ -243,7 +275,12 @@ export function createExercise(name: string, category: Category): Exercise {
 
 export function deleteExercise(id: number): void {
   const db = getDb();
-  db.prepare('DELETE FROM exercises WHERE id = ? AND is_custom = 1').run(id);
+  const { changes } = db.prepare('DELETE FROM exercises WHERE id = ? AND is_custom = 1').run(id);
+  if (changes > 0) {
+    // foreign_keys isn't enabled, so clean up references by hand.
+    db.prepare('DELETE FROM routine_exercises WHERE exercise_id = ?').run(id);
+    db.prepare('DELETE FROM session_exercises WHERE exercise_id = ?').run(id);
+  }
 }
 
 // ── Logs ─────────────────────────────────────────────────────────────────────
@@ -273,30 +310,80 @@ export function getLastResultsForPeople(exerciseId: number, beforeDate: string):
   return result;
 }
 
-/** Exercises with at least one log entry on `date`, hydrated with today's entries and each person's prior result. */
-export function getExercisesForDate(date: string): ExerciseWithLast[] {
+/** Ordered exercise ids (with the routine each came from) on `date`'s session. */
+function getSessionRows(date: string): { exercise_id: number; routine_id: number | null }[] {
   const db = getDb();
-  const exerciseIds = db.prepare(
-    'SELECT DISTINCT exercise_id FROM logs WHERE performed_at = ?'
-  ).all(date) as { exercise_id: number }[];
+  const sessionRows = db.prepare(
+    'SELECT exercise_id, routine_id FROM session_exercises WHERE performed_at = ? ORDER BY position'
+  ).all(date) as { exercise_id: number; routine_id: number | null }[];
+  // Days logged before session_exercises existed only have log rows; append those in logged order.
+  const legacyRows = db.prepare(`
+    SELECT exercise_id FROM logs
+    WHERE performed_at = ?
+      AND exercise_id NOT IN (SELECT exercise_id FROM session_exercises WHERE performed_at = ?)
+    GROUP BY exercise_id ORDER BY MIN(id)
+  `).all(date, date) as { exercise_id: number }[];
+  return [...sessionRows, ...legacyRows.map(r => ({ exercise_id: r.exercise_id, routine_id: null }))];
+}
 
-  const people = getPeople();
-  return exerciseIds
-    .map(({ exercise_id }) => {
-      const exercise = getExercise(exercise_id);
-      if (!exercise) return null;
-      const today: Record<number, LogEntry | null> = {};
-      const last: Record<number, LastResult | null> = {};
-      for (const p of people) {
-        const row = db.prepare(
-          'SELECT * FROM logs WHERE exercise_id = ? AND person_id = ? AND performed_at = ?'
-        ).get(exercise_id, p.id, date) as Record<string, unknown> | undefined;
-        today[p.id] = row ? parseLog(row) : null;
-        last[p.id] = getLastResult(exercise_id, p.id, date);
-      }
-      return { ...exercise, today, last };
-    })
+function hydrateExercise(exerciseId: number, routineId: number | null, date: string): ExerciseWithLast | null {
+  const db = getDb();
+  const exercise = getExercise(exerciseId);
+  if (!exercise) return null;
+  const today: Record<number, LogEntry | null> = {};
+  const last: Record<number, LastResult | null> = {};
+  for (const p of getPeople()) {
+    const row = db.prepare(
+      'SELECT * FROM logs WHERE exercise_id = ? AND person_id = ? AND performed_at = ?'
+    ).get(exerciseId, p.id, date) as Record<string, unknown> | undefined;
+    today[p.id] = row ? parseLog(row) : null;
+    last[p.id] = getLastResult(exerciseId, p.id, date);
+  }
+  return { ...exercise, today, last, routine_id: routineId };
+}
+
+/** Exercises on `date`'s session (added, pulled from a routine, or logged), in session order, hydrated with today's entries and each person's prior result. */
+export function getExercisesForDate(date: string): ExerciseWithLast[] {
+  return getSessionRows(date)
+    .map(({ exercise_id, routine_id }) => hydrateExercise(exercise_id, routine_id, date))
     .filter((e): e is ExerciseWithLast => e !== null);
+}
+
+/** Materializes the full session order for `date` into session_exercises so appended rows land after legacy log-only ones. */
+function ensureSessionRows(date: string): number {
+  const db = getDb();
+  const rows = getSessionRows(date);
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO session_exercises (performed_at, exercise_id, position, routine_id) VALUES (?, ?, ?, ?)'
+  );
+  const reposition = db.prepare(
+    'UPDATE session_exercises SET position = ? WHERE performed_at = ? AND exercise_id = ?'
+  );
+  rows.forEach((r, i) => {
+    insert.run(date, r.exercise_id, i, r.routine_id);
+    reposition.run(i, date, r.exercise_id);
+  });
+  return rows.length;
+}
+
+/** Adds an exercise to `date`'s session so it sticks around before anything is logged. */
+export function addExerciseToDate(exerciseId: number, date: string): ExerciseWithLast | null {
+  const db = getDb();
+  const existing = db.prepare(
+    'SELECT routine_id FROM session_exercises WHERE performed_at = ? AND exercise_id = ?'
+  ).get(date, exerciseId) as { routine_id: number | null } | undefined;
+  if (!existing) {
+    db.transaction(() => {
+      const next = ensureSessionRows(date);
+      db.prepare(
+        'INSERT OR IGNORE INTO session_exercises (performed_at, exercise_id, position, routine_id) VALUES (?, ?, ?, NULL)'
+      ).run(date, exerciseId, next);
+    })();
+  }
+  const row = db.prepare(
+    'SELECT routine_id FROM session_exercises WHERE performed_at = ? AND exercise_id = ?'
+  ).get(date, exerciseId) as { routine_id: number | null } | undefined;
+  return hydrateExercise(exerciseId, row?.routine_id ?? null, date);
 }
 
 export function logSet(data: {
@@ -327,10 +414,153 @@ export function deleteLogEntry(id: number): void {
   db.prepare('DELETE FROM logs WHERE id = ?').run(id);
 }
 
-/** Removes an exercise from a given day's session (all people). */
+/** Removes an exercise from a given day's session (all people). The routine itself is left untouched. */
 export function removeExerciseFromDate(exerciseId: number, date: string): void {
   const db = getDb();
   db.prepare('DELETE FROM logs WHERE exercise_id = ? AND performed_at = ?').run(exerciseId, date);
+  db.prepare('DELETE FROM session_exercises WHERE exercise_id = ? AND performed_at = ?').run(exerciseId, date);
+}
+
+// ── Routines ─────────────────────────────────────────────────────────────────
+
+function getRoutineExercises(routineId: number): Exercise[] {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT exercises.* FROM routine_exercises
+    JOIN exercises ON exercises.id = routine_exercises.exercise_id
+    WHERE routine_exercises.routine_id = ?
+    ORDER BY routine_exercises.position
+  `).all(routineId) as Record<string, unknown>[];
+  return rows.map(parseExercise);
+}
+
+/**
+ * Rotation offset for a routine on `date`: the offset already used that day if it was started,
+ * otherwise one past the most recent earlier day's offset (so the previous first exercise moves to the end).
+ */
+function routineOffsetForDate(routineId: number, date: string, count: number): number {
+  if (count === 0) return 0;
+  const db = getDb();
+  const sameDay = db.prepare(
+    'SELECT rotation_offset FROM routine_days WHERE routine_id = ? AND performed_at = ?'
+  ).get(routineId, date) as { rotation_offset: number } | undefined;
+  if (sameDay) return sameDay.rotation_offset % count;
+  const prev = db.prepare(
+    'SELECT rotation_offset FROM routine_days WHERE routine_id = ? AND performed_at < ? ORDER BY performed_at DESC LIMIT 1'
+  ).get(routineId, date) as { rotation_offset: number } | undefined;
+  return prev ? (prev.rotation_offset + 1) % count : 0;
+}
+
+function buildRoutine(row: { id: number; name: string }, date: string): Routine {
+  const db = getDb();
+  const exercises = getRoutineExercises(row.id);
+  const lastDone = db.prepare(
+    'SELECT performed_at FROM routine_days WHERE routine_id = ? AND performed_at < ? ORDER BY performed_at DESC LIMIT 1'
+  ).get(row.id, date) as { performed_at: string } | undefined;
+  const has = db.prepare('SELECT 1 FROM routine_days WHERE routine_id = ? AND performed_at = ?');
+  return {
+    id: row.id,
+    name: row.name,
+    exercises,
+    next_offset: routineOffsetForDate(row.id, date, exercises.length),
+    last_done: lastDone?.performed_at ?? null,
+    on_date: has.get(row.id, date) !== undefined,
+    on_last_week: has.get(row.id, addDays(date, -7)) !== undefined,
+  };
+}
+
+/** All routines, with rotation/last-done info computed relative to `date`. */
+export function getRoutines(date: string = todayStr()): Routine[] {
+  const db = getDb();
+  const rows = db.prepare('SELECT id, name FROM routines ORDER BY id').all() as { id: number; name: string }[];
+  return rows.map(r => buildRoutine(r, date));
+}
+
+export function getRoutine(id: number, date: string = todayStr()): Routine | null {
+  const db = getDb();
+  const row = db.prepare('SELECT id, name FROM routines WHERE id = ?').get(id) as { id: number; name: string } | undefined;
+  return row ? buildRoutine(row, date) : null;
+}
+
+function setRoutineExercises(routineId: number, exerciseIds: number[]) {
+  const db = getDb();
+  db.prepare('DELETE FROM routine_exercises WHERE routine_id = ?').run(routineId);
+  const insert = db.prepare('INSERT INTO routine_exercises (routine_id, exercise_id, position) VALUES (?, ?, ?)');
+  Array.from(new Set(exerciseIds)).forEach((exerciseId, i) => insert.run(routineId, exerciseId, i));
+}
+
+export function createRoutine(name: string, exerciseIds: number[]): Routine {
+  const db = getDb();
+  const id = db.transaction(() => {
+    const result = db.prepare('INSERT INTO routines (name) VALUES (?)').run(name.trim());
+    const routineId = Number(result.lastInsertRowid);
+    setRoutineExercises(routineId, exerciseIds);
+    return routineId;
+  })();
+  return getRoutine(id)!;
+}
+
+export function updateRoutine(id: number, data: { name?: string; exercise_ids?: number[] }): Routine | null {
+  const db = getDb();
+  db.transaction(() => {
+    if (data.name !== undefined) db.prepare('UPDATE routines SET name = ? WHERE id = ?').run(data.name.trim(), id);
+    if (data.exercise_ids !== undefined) setRoutineExercises(id, data.exercise_ids);
+  })();
+  return getRoutine(id);
+}
+
+/** Deletes a routine. Past sessions keep their exercises and logs; they just become one-offs. */
+export function deleteRoutine(id: number): void {
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare('DELETE FROM routine_exercises WHERE routine_id = ?').run(id);
+    db.prepare('DELETE FROM routine_days WHERE routine_id = ?').run(id);
+    db.prepare('UPDATE session_exercises SET routine_id = NULL WHERE routine_id = ?').run(id);
+    db.prepare('DELETE FROM routines WHERE id = ?').run(id);
+  })();
+}
+
+/**
+ * Starts a routine on `date`: appends its exercises to the session in rotated order
+ * (exercises[offset] first, wrapping around) and records the rotation so the next time starts one later.
+ */
+export function startRoutine(routineId: number, date: string): void {
+  const db = getDb();
+  db.transaction(() => {
+    const already = db.prepare('SELECT 1 FROM routine_days WHERE routine_id = ? AND performed_at = ?').get(routineId, date);
+    if (already) return;
+    const exercises = getRoutineExercises(routineId);
+    const offset = routineOffsetForDate(routineId, date, exercises.length);
+    const rotated = [...exercises.slice(offset), ...exercises.slice(0, offset)];
+
+    let next = ensureSessionRows(date);
+    const insert = db.prepare(
+      'INSERT OR IGNORE INTO session_exercises (performed_at, exercise_id, position, routine_id) VALUES (?, ?, ?, ?)'
+    );
+    const claim = db.prepare(
+      'UPDATE session_exercises SET routine_id = ? WHERE performed_at = ? AND exercise_id = ? AND routine_id IS NULL'
+    );
+    for (const e of rotated) {
+      const { changes } = insert.run(date, e.id, next, routineId);
+      if (changes > 0) next++;
+      else claim.run(routineId, date, e.id); // already on the session as an extra — it's part of the routine now
+    }
+    db.prepare('INSERT INTO routine_days (routine_id, performed_at, rotation_offset) VALUES (?, ?, ?)').run(routineId, date, offset);
+  })();
+}
+
+/** Undoes starting a routine on `date`. Exercises that already have logged sets stay (as extras); untouched ones are removed. */
+export function removeRoutineFromDate(routineId: number, date: string): void {
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare('DELETE FROM routine_days WHERE routine_id = ? AND performed_at = ?').run(routineId, date);
+    db.prepare(`
+      DELETE FROM session_exercises
+      WHERE routine_id = ? AND performed_at = ?
+        AND exercise_id NOT IN (SELECT exercise_id FROM logs WHERE performed_at = ?)
+    `).run(routineId, date, date);
+    db.prepare('UPDATE session_exercises SET routine_id = NULL WHERE routine_id = ? AND performed_at = ?').run(routineId, date);
+  })();
 }
 
 // ── History ──────────────────────────────────────────────────────────────────

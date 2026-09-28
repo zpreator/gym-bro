@@ -1,16 +1,18 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import type { Exercise, ExerciseWithLast, LogStatus, Person } from '@/lib/types';
+import type { Exercise, ExerciseWithLast, LogStatus, Person, Routine } from '@/lib/types';
 import { todayStr, relativeDate, formatDate, isFutureDate, addDays } from '@/lib/date';
 import ExercisePicker from '@/components/ExercisePicker';
 import ExerciseLogCard from '@/components/ExerciseLogCard';
 import DateNav from '@/components/DateNav';
 import SuggestedExercises from '@/components/SuggestedExercises';
+import TodayRoutines from '@/components/TodayRoutines';
 
 export default function TodayPage() {
   const [people, setPeople] = useState<Person[]>([]);
   const [cards, setCards] = useState<ExerciseWithLast[]>([]);
   const [lastWeekCards, setLastWeekCards] = useState<ExerciseWithLast[]>([]);
+  const [routines, setRoutines] = useState<Routine[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [date, setDate] = useState(todayStr());
@@ -18,14 +20,16 @@ export default function TodayPage() {
   const lastWeekDate = addDays(date, -7);
 
   const load = useCallback(async () => {
-    const [peopleRes, todayRes, lastWeekRes] = await Promise.all([
+    const [peopleRes, todayRes, lastWeekRes, routinesRes] = await Promise.all([
       fetch('/api/people').then(r => r.json()),
       fetch(`/api/today?date=${date}`).then(r => r.json()),
       fetch(`/api/today?date=${lastWeekDate}`).then(r => r.json()),
+      fetch(`/api/routines?date=${date}`).then(r => r.json()),
     ]);
     setPeople(peopleRes);
     setCards(todayRes);
     setLastWeekCards(lastWeekRes);
+    setRoutines(routinesRes);
     setLoading(false);
   }, [date, lastWeekDate]);
 
@@ -33,10 +37,33 @@ export default function TodayPage() {
 
   async function addExercise(exercise: Exercise) {
     setPickerOpen(false);
-    const last = await fetch(`/api/logs/last?exercise_id=${exercise.id}&date=${date}`).then(r => r.json());
-    const today: Record<number, null> = {};
-    for (const p of people) today[p.id] = null;
-    setCards(prev => [...prev, { ...exercise, last, today }]);
+    // Persist to the day's session immediately so it survives navigating away before "Done".
+    const card: ExerciseWithLast = await fetch('/api/today', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exercise_id: exercise.id, date }),
+    }).then(r => r.json());
+    setCards(prev => (prev.some(c => c.id === card.id) ? prev : [...prev, card]));
+  }
+
+  async function refreshRoutines() {
+    setRoutines(await fetch(`/api/routines?date=${date}`).then(r => r.json()));
+  }
+
+  async function startRoutine(routine: Routine) {
+    const res = await fetch(`/api/routines/${routine.id}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date }),
+    }).then(r => r.json());
+    setCards(res);
+    await refreshRoutines();
+  }
+
+  async function removeRoutine(routine: Routine) {
+    const res = await fetch(`/api/routines/${routine.id}/start?date=${date}`, { method: 'DELETE' }).then(r => r.json());
+    setCards(res);
+    await refreshRoutines();
   }
 
   async function removeExercise(exerciseId: number) {
@@ -71,6 +98,7 @@ export default function TodayPage() {
   const excludeIds = cards.map(c => c.id);
 
   const isToday = date === todayStr();
+  const hasRoutine = routines.some(r => r.on_date);
 
   return (
     <div className="px-4 pt-8 space-y-4">
@@ -93,6 +121,10 @@ export default function TodayPage() {
       </div>
 
       <DateNav date={date} onChange={setDate} />
+
+      {!loading && (
+        <TodayRoutines routines={routines} date={date} onStart={startRoutine} onRemove={removeRoutine} />
+      )}
 
       {!loading && (
         <SuggestedExercises
@@ -123,6 +155,7 @@ export default function TodayPage() {
             card={card}
             people={people}
             isFuture={isFuture}
+            isExtra={hasRoutine && card.routine_id == null}
             onSave={(personId, data) => saveEntry(card.id, personId, data)}
             onRemove={() => removeExercise(card.id)}
           />

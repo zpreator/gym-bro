@@ -18,7 +18,8 @@ export default function SuggestedExercises({
   onAdd: (exercise: Exercise) => void;
 }) {
   const excludeSet = new Set(excludeIds);
-  const suggestions = candidates.filter(c => !excludeSet.has(c.id) && wasCompleted(c));
+  // Exercises that came from a routine last week are offered via the routine itself; only suggest the one-offs here.
+  const suggestions = candidates.filter(c => !excludeSet.has(c.id) && c.routine_id == null && wasCompleted(c));
 
   if (suggestions.length === 0) return null;
 

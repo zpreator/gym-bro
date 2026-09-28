@@ -62,6 +62,23 @@ export interface LastResult {
 export interface ExerciseWithLast extends Exercise {
   last: Record<number, LastResult | null>; // keyed by person_id
   today: Record<number, LogEntry | null>; // keyed by person_id
+  /** Routine this exercise was pulled in from on this day; null for a one-off/extra exercise. */
+  routine_id: number | null;
+}
+
+/** A saved, ordered list of exercises that gets rotated by one each time it's done. */
+export interface Routine {
+  id: number;
+  name: string;
+  exercises: Exercise[]; // canonical order
+  /** Rotation offset the routine would use on the requested date: exercises[offset] goes first. */
+  next_offset: number;
+  /** Most recent date (before the requested date) this routine was done, if ever. */
+  last_done: string | null;
+  /** True if this routine has already been started on the requested date. */
+  on_date: boolean;
+  /** True if this routine was done exactly one week before the requested date (same weekday). */
+  on_last_week: boolean;
 }
 
 export interface HistoryDay {
