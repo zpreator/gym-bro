@@ -9,6 +9,7 @@ interface RowState {
   weight: string;
   reps: string;
   sets: string;
+  seat: string;
   dnf: boolean;
   savedStatus: LogStatus | null;
   dirty: boolean;
@@ -23,6 +24,7 @@ function initialRow(card: ExerciseWithLast, personId: number): RowState {
     weight: source?.weight != null ? String(source.weight) : '',
     reps: source?.reps != null ? String(source.reps) : '',
     sets: source?.sets != null ? String(source.sets) : '',
+    seat: source?.seat ?? '',
     dnf: today?.status === 'dnf',
     savedStatus: today?.status ?? null,
     dirty: false,
@@ -54,7 +56,7 @@ export default function ExerciseLogCard({
   isExtra?: boolean;
   onSave: (
     personId: number,
-    data: { weight: string; reps: string; sets: string; status: LogStatus },
+    data: { weight: string; reps: string; sets: string; seat: string; status: LogStatus },
   ) => Promise<void>;
   onRemove: () => void;
 }) {
@@ -64,7 +66,7 @@ export default function ExerciseLogCard({
     return init;
   });
 
-  function update(personId: number, patch: Partial<Pick<RowState, 'weight' | 'reps' | 'sets' | 'dnf'>>) {
+  function update(personId: number, patch: Partial<Pick<RowState, 'weight' | 'reps' | 'sets' | 'seat' | 'dnf'>>) {
     setRows(prev => ({ ...prev, [personId]: { ...prev[personId], ...patch, dirty: true } }));
   }
 
@@ -72,7 +74,7 @@ export default function ExerciseLogCard({
     const row = rows[personId];
     const status: LogStatus = isFuture ? 'planned' : row.dnf ? 'dnf' : 'done';
     setRows(prev => ({ ...prev, [personId]: { ...prev[personId], saving: true } }));
-    await onSave(personId, { weight: row.weight, reps: row.reps, sets: row.sets, status });
+    await onSave(personId, { weight: row.weight, reps: row.reps, sets: row.sets, seat: row.seat, status });
     setRows(prev => ({
       ...prev,
       [personId]: { ...prev[personId], saving: false, savedStatus: status, dirty: false },
@@ -172,6 +174,16 @@ export default function ExerciseLogCard({
                   placeholder="reps"
                   className="w-14 bg-stone-100 rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ember-400"
                 />
+                <label className="ml-auto flex items-center gap-1.5 min-w-0">
+                  <span className="text-stone-400 text-xs">Seat</span>
+                  <input
+                    type="text"
+                    value={row.seat}
+                    onChange={e => update(p.id, { seat: e.target.value })}
+                    placeholder="—"
+                    className="w-14 min-w-0 bg-stone-100 rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ember-400"
+                  />
+                </label>
               </div>
 
               <div className="flex items-center gap-2 mt-2">

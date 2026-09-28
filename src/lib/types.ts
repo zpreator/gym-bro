@@ -45,6 +45,8 @@ export interface LogEntry {
   weight: number | null;
   reps: number | null;
   sets: number | null;
+  /** Machine seat/setting, free text (usually a number, e.g. "4" or "high"). */
+  seat: string | null;
   status: LogStatus;
   notes: string;
   created_at: string;
@@ -56,6 +58,7 @@ export interface LastResult {
   weight: number | null;
   reps: number | null;
   sets: number | null;
+  seat: string | null;
   status: LogStatus;
 }
 

@@ -100,6 +100,9 @@ function initDb(db: Database.Database) {
   if (!logColumns.some(c => c.name === 'sets')) {
     db.exec('ALTER TABLE logs ADD COLUMN sets INTEGER');
   }
+  if (!logColumns.some(c => c.name === 'seat')) {
+    db.exec('ALTER TABLE logs ADD COLUMN seat TEXT');
+  }
 
   const { count: peopleCount } = db.prepare('SELECT COUNT(*) as count FROM people').get() as { count: number };
   if (peopleCount === 0) seedPeople(db);
@@ -229,6 +232,7 @@ function parseLog(row: Record<string, unknown>): LogEntry {
     weight: (row.weight as number | null) ?? null,
     reps: (row.reps as number | null) ?? null,
     sets: (row.sets as number | null) ?? null,
+    seat: (row.seat as string | null) ?? null,
     status: row.status as LogStatus,
     notes: (row.notes as string) ?? '',
     created_at: row.created_at as string,
@@ -289,7 +293,7 @@ export function deleteExercise(id: number): void {
 export function getLastResult(exerciseId: number, personId: number, beforeDate: string): LastResult | null {
   const db = getDb();
   const row = db.prepare(
-    `SELECT performed_at, weight, reps, sets, status FROM logs
+    `SELECT performed_at, weight, reps, sets, seat, status FROM logs
      WHERE exercise_id = ? AND person_id = ? AND performed_at < ? AND status != 'planned'
      ORDER BY performed_at DESC LIMIT 1`
   ).get(exerciseId, personId, beforeDate) as Record<string, unknown> | undefined;
@@ -299,6 +303,7 @@ export function getLastResult(exerciseId: number, personId: number, beforeDate: 
     weight: (row.weight as number | null) ?? null,
     reps: (row.reps as number | null) ?? null,
     sets: (row.sets as number | null) ?? null,
+    seat: (row.seat as string | null) ?? null,
     status: row.status as LogStatus,
   };
 }
@@ -393,15 +398,16 @@ export function logSet(data: {
   weight: number | null;
   reps: number | null;
   sets: number | null;
+  seat: string | null;
   status: LogStatus;
   notes?: string;
 }): LogEntry {
   const db = getDb();
   db.prepare(`
-    INSERT INTO logs (exercise_id, person_id, performed_at, weight, reps, sets, status, notes)
-    VALUES (@exercise_id, @person_id, @performed_at, @weight, @reps, @sets, @status, @notes)
+    INSERT INTO logs (exercise_id, person_id, performed_at, weight, reps, sets, seat, status, notes)
+    VALUES (@exercise_id, @person_id, @performed_at, @weight, @reps, @sets, @seat, @status, @notes)
     ON CONFLICT(exercise_id, person_id, performed_at)
-    DO UPDATE SET weight = @weight, reps = @reps, sets = @sets, status = @status, notes = @notes
+    DO UPDATE SET weight = @weight, reps = @reps, sets = @sets, seat = @seat, status = @status, notes = @notes
   `).run({ notes: '', ...data });
   const row = db.prepare(
     'SELECT * FROM logs WHERE exercise_id = ? AND person_id = ? AND performed_at = ?'

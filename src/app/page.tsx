@@ -74,7 +74,7 @@ export default function TodayPage() {
   async function saveEntry(
     exerciseId: number,
     personId: number,
-    data: { weight: string; reps: string; sets: string; status: LogStatus },
+    data: { weight: string; reps: string; sets: string; seat: string; status: LogStatus },
   ) {
     if (!data.weight && !data.reps && data.status !== 'dnf') return;
     const entry = await fetch('/api/logs', {
@@ -87,6 +87,7 @@ export default function TodayPage() {
         weight: data.weight,
         reps: data.reps,
         sets: data.sets,
+        seat: data.seat,
         status: data.status,
       }),
     }).then(r => r.json());

@@ -4,7 +4,7 @@ import { todayStr } from '@/lib/date';
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { exercise_id, person_id, performed_at, weight, reps, sets, status, notes } = body;
+  const { exercise_id, person_id, performed_at, weight, reps, sets, seat, status, notes } = body;
 
   if (!exercise_id || !person_id) {
     return NextResponse.json({ error: 'exercise_id and person_id are required' }, { status: 400 });
@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
     weight: weight === '' || weight === undefined ? null : Number(weight),
     reps: reps === '' || reps === undefined ? null : Number(reps),
     sets: sets === '' || sets === undefined ? null : Number(sets),
+    seat: typeof seat === 'string' && seat.trim() ? seat.trim() : null,
     status,
     notes,
   });
