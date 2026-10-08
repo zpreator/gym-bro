@@ -71,6 +71,19 @@ export default function TodayPage() {
     await fetch(`/api/today?exercise_id=${exerciseId}&date=${date}`, { method: 'DELETE' });
   }
 
+  async function moveExercise(index: number, delta: number) {
+    const target = index + delta;
+    if (target < 0 || target >= cards.length) return;
+    const next = [...cards];
+    [next[index], next[target]] = [next[target], next[index]];
+    setCards(next);
+    await fetch('/api/today', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, exercise_ids: next.map(c => c.id) }),
+    });
+  }
+
   async function saveEntry(
     exerciseId: number,
     personId: number,
@@ -150,7 +163,7 @@ export default function TodayPage() {
       )}
 
       <div className="space-y-4">
-        {cards.map(card => (
+        {cards.map((card, index) => (
           <ExerciseLogCard
             key={card.id}
             card={card}
@@ -159,6 +172,8 @@ export default function TodayPage() {
             isExtra={hasRoutine && card.routine_id == null}
             onSave={(personId, data) => saveEntry(card.id, personId, data)}
             onRemove={() => removeExercise(card.id)}
+            onMoveUp={index > 0 ? () => moveExercise(index, -1) : undefined}
+            onMoveDown={index < cards.length - 1 ? () => moveExercise(index, 1) : undefined}
           />
         ))}
       </div>
