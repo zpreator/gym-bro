@@ -420,6 +420,20 @@ export function deleteLogEntry(id: number): void {
   db.prepare('DELETE FROM logs WHERE id = ?').run(id);
 }
 
+/** Persists a new exercise order for `date`'s session; ids not listed keep their relative order after the listed ones. */
+export function reorderSessionExercises(date: string, orderedIds: number[]): void {
+  const db = getDb();
+  db.transaction(() => {
+    ensureSessionRows(date);
+    const current = getSessionRows(date).map(r => r.exercise_id);
+    const known = new Set(current);
+    const listed = orderedIds.filter((id, i) => known.has(id) && orderedIds.indexOf(id) === i);
+    const rest = current.filter(id => !listed.includes(id));
+    const update = db.prepare('UPDATE session_exercises SET position = ? WHERE performed_at = ? AND exercise_id = ?');
+    [...listed, ...rest].forEach((id, i) => update.run(i, date, id));
+  })();
+}
+
 /** Removes an exercise from a given day's session (all people). The routine itself is left untouched. */
 export function removeExerciseFromDate(exerciseId: number, date: string): void {
   const db = getDb();
@@ -587,8 +601,12 @@ export function getHistoryDays(limit = 30, beforeDate?: string): HistoryDay[] {
       JOIN exercises ON exercises.id = logs.exercise_id
       JOIN people ON people.id = logs.person_id
       WHERE logs.performed_at = ? AND logs.status != 'planned'
-      ORDER BY exercises.category, exercises.name, people.sort_order
+      ORDER BY people.sort_order
     `).all(performed_at) as Record<string, unknown>[];
+    // Show exercises in the order they appear in the day's session.
+    const order = new Map(getSessionRows(performed_at).map((r, i) => [r.exercise_id, i]));
+    const rank = (r: Record<string, unknown>) => order.get(r.exercise_id as number) ?? Number.MAX_SAFE_INTEGER;
+    rows.sort((a, b) => rank(a) - rank(b));
     return {
       performed_at,
       entries: rows.map(r => ({ ...parseLog(r), exercise_name: r.exercise_name as string, person_name: r.person_name as string })),
